@@ -32,12 +32,12 @@ Dự án được xây dựng theo mô hình Monorepo gồm 2 thành phần chí
 ```mermaid
 sequenceDiagram
     autonumber
-    actor User as Người dùng (Flutter App)
-    participant Hub as SignalR VoiceHub (.NET 10)
-    participant STT as Whisper.net (STT)
-    participant LLM as Ollama (Llama 3.2)
-    participant TTS as Edge TTS / Kokoro (TTS)
-    participant DB as PostgreSQL (Write/Read DB)
+    actor User as Người dùng [Flutter App]
+    participant Hub as SignalR VoiceHub [.NET 10]
+    participant STT as Whisper.net [STT]
+    participant LLM as Ollama [Llama 3.2]
+    participant TTS as Edge TTS / Kokoro [TTS]
+    participant DB as PostgreSQL [Write/Read DB]
 
     User->>Hub: Gửi giọng nói (16kHz Mono WAV qua ProcessUserAudio)
     Hub->>STT: Chuyển đổi âm thanh thành văn bản
@@ -46,13 +46,13 @@ sequenceDiagram
     Hub->>DB: Lưu tin nhắn User (CQRS Write)
 
     Hub->>LLM: Stream prompt kèm ngữ cảnh gia sư IELTS
-    loop Từng Token & Phân tách câu (Clause-Level Chunking)
+    loop Xử lý từng Token từ LLM
         LLM-->>Hub: Yield token
-        Hub-->>User: Gửi ReceiveSubtitleToken (hiện phụ đề trực tiếp)
-        opt Đạt ranh giới câu (. ? !) hoặc cụm từ (, ; : với >= 4 từ)
+        Hub-->>User: Gửi ReceiveSubtitleToken (hiện phụ đề)
+        opt Đạt ranh giới ngắt câu hoặc cụm từ từ 4 từ trở lên
             Hub->>TTS: Tổng hợp PCM thô (raw-24khz-16bit-mono)
             TTS-->>Hub: Yield các byte chunk PCM
-            Hub-->>User: Bắn ReceiveAudioChunk (stream trực tiếp tới loa)
+            Hub-->>User: Bắn ReceiveAudioChunk (phát trực tiếp ra loa)
         end
     end
 
