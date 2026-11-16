@@ -47,10 +47,10 @@ sequenceDiagram
     Hub->>DB: Persist User message (CQRS Write)
 
     Hub->>LLM: Stream prompt with IELTS Tutor context
-    loop Token Streaming & Sentence Breaking
+    loop Token streaming from LLM
         LLM-->>Hub: Yield token
         Hub-->>User: Dispatch ReceiveSubtitleToken (real-time subtitles)
-        opt Reached sentence end (. ? !) or clause boundary (, ; : with 4+ words)
+        opt Sentence end or clause boundary with 4+ words
             Hub->>TTS: Synthesize raw PCM chunk (raw-24khz-16bit-mono)
             TTS-->>Hub: Yield PCM byte chunks
             Hub-->>User: Dispatch ReceiveAudioChunk (streamed to speaker)
