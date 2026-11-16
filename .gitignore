@@ -1,0 +1,36 @@
+# Visual Studio & Rider
+.idea/
+.vscode/
+*.DotSettings.user
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# .NET / C# Build outputs
+[Bb]in/
+[Oo]bj/
+*.db
+*.db-shm
+*.db-wal
+
+# Flutter & Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+build/
+*.iml
+
+# CocoaPods
+Pods/
+Podfile.lock
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Log files
+*.log

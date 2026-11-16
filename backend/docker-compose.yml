@@ -1,0 +1,23 @@
+services:
+  ai-tutor-postgres:
+    image: postgres:16-alpine
+    container_name: ai-tutor-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgrespassword}
+      POSTGRES_DB: ${POSTGRES_DB:-ai_tutor_db}
+    ports:
+      - "5433:5432"
+    volumes:
+      - ai_tutor_postgres_data:/var/lib/postgresql/data
+
+  kokoro-tts:
+    image: ghcr.io/remsky/kokoro-fastapi-cpu:latest
+    container_name: kokoro-tts
+    restart: unless-stopped
+    ports:
+      - "8880:8880"
+
+volumes:
+  ai_tutor_postgres_data:
