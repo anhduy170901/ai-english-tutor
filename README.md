@@ -1,193 +1,194 @@
 # 🎙️ AI English Tutor — Real-time Voice-to-Voice AI Tutoring System
 
-Hệ thống gia sư tiếng Anh thông minh hỗ trợ giao tiếp hai chiều thời gian thực (Real-time Voice-to-Voice) với độ trễ cực thấp (< 1 giây). Ứng dụng mô phỏng cuộc trò chuyện tự nhiên như gọi điện với gia sư bản xứ chuẩn IELTS 8.5+, hỗ trợ sửa lỗi ngữ pháp, gợi ý từ vựng và chấm điểm theo khung tham chiếu Châu Âu (CEFR).
+An intelligent English tutoring platform featuring bidirectional, real-time voice communication (Voice-to-Voice) with ultra-low latency (< 1 second). The system emulates natural spoken dialogue akin to calling a native English tutor (IELTS 8.5+), offering immediate grammar corrections, vocabulary enhancements, and CEFR-aligned learning evaluations.
 
 ---
 
-## 📑 Mục lục
-- [Tổng quan kiến trúc](#-tổng-quan-kiến-trúc)
-- [Tính năng nổi bật](#-tính-năng-nổi-bật)
-- [Công nghệ sử dụng](#-công-nghệ-sử-dụng)
-- [Cấu trúc mã nguồn](#-cấu-trúc-mã-nguồn)
-- [Yêu cầu hệ thống](#-yêu-cầu-hệ-thống)
-- [Hướng dẫn cài đặt & Khởi chạy](#-hướng-dẫn-cài-đặt--khởi-chạy)
-  - [1. Hạ tầng phụ trợ (Docker)](#1-khởi-động-hạ-tầng-phụ-trợ-docker)
-  - [2. Cài đặt mô hình AI (Ollama)](#2-chuẩn-bị-llm-ollama)
-  - [3. Chạy Backend API (.NET 10)](#3-chạy-backend-net-10)
-  - [4. Chạy Mobile App (Flutter)](#4-chạy-ứng-dụng-mobile-flutter)
-- [Cơ chế Real-time Voice Pipeline](#-cơ-chế-real-time-voice-pipeline)
+## 📑 Table of Contents
+- [Architecture Overview](#-architecture-overview)
+- [Key Features](#-key-features)
+- [Tech Stack](#-tech-stack)
+- [Repository Structure](#-repository-structure)
+- [Prerequisites](#-prerequisites)
+- [Getting Started](#-getting-started)
+  - [1. Infrastructure Services (Docker)](#1-infrastructure-services-docker)
+  - [2. Local LLM Setup (Ollama)](#2-local-llm-setup-ollama)
+  - [3. Run Backend API (.NET 10)](#3-run-backend-api-net-10)
+  - [4. Run Mobile App (Flutter)](#4-run-mobile-app-flutter)
+- [Real-time Audio Pipeline](#-real-time-audio-pipeline)
 - [API & SignalR Reference](#-api--signalr-reference)
-- [Troubleshooting & Lưu ý](#-troubleshooting--lưu-ý)
+- [Troubleshooting & FAQs](#-troubleshooting--faqs)
+- [License](#-license)
 
 ---
 
-## 🏛️ Tổng quan kiến trúc
+## 🏛️ Architecture Overview
 
-Dự án được xây dựng theo mô hình Monorepo gồm 2 thành phần chính:
-- **Backend**: Xây dựng bằng **.NET 10** theo chuẩn **Clean Architecture** kết hợp mô hình **CQRS (MediatR)** và **SignalR Hub** quản lý kết nối thời gian thực.
-- **Mobile**: Ứng dụng **Flutter (iOS/Android/macOS)** thiết kế theo **Clean Architecture** kết hợp **BLoC pattern**, truyền phát âm thanh phần cứng trực tiếp qua PCM buffer.
+The repository is structured as a Monorepo containing two core sub-systems:
+- **Backend**: Built with **.NET 10** following **Clean Architecture**, **CQRS (MediatR)**, and **ASP.NET Core SignalR** for real-time bidirectional duplex communication.
+- **Mobile**: Cross-platform application built with **Flutter (iOS/Android/macOS)** utilizing **Clean Architecture** and the **BLoC pattern**, directly streaming uncompressed PCM audio chunks into hardware audio buffers.
 
-### Sơ đồ luồng xử lý giọng nói (Real-time Audio Pipeline)
+### Real-time Audio Pipeline Sequence Diagram
 
 ```mermaid
 sequenceDiagram
     autonumber
-    actor User as Người dùng [Flutter App]
+    actor User as User [Flutter App]
     participant Hub as SignalR VoiceHub [.NET 10]
     participant STT as Whisper.net [STT]
     participant LLM as Ollama [Llama 3.2]
     participant TTS as Edge TTS / Kokoro [TTS]
     participant DB as PostgreSQL [Write/Read DB]
 
-    User->>Hub: Gửi giọng nói (16kHz Mono WAV qua ProcessUserAudio)
-    Hub->>STT: Chuyển đổi âm thanh thành văn bản
-    STT-->>Hub: Chuỗi văn bản người dùng nói
-    Hub-->>User: Gửi sự kiện UserTranscribedText (hiển thị tức thì)
-    Hub->>DB: Lưu tin nhắn User (CQRS Write)
+    User->>Hub: Stream audio (16kHz Mono WAV via ProcessUserAudio)
+    Hub->>STT: Transcribe speech to text
+    STT-->>Hub: User transcribed text
+    Hub-->>User: Dispatch UserTranscribedText event (instant display)
+    Hub->>DB: Persist User message (CQRS Write)
 
-    Hub->>LLM: Stream prompt kèm ngữ cảnh gia sư IELTS
-    loop Xử lý từng Token từ LLM
+    Hub->>LLM: Stream prompt with IELTS Tutor context
+    loop Token Streaming & Sentence Breaking
         LLM-->>Hub: Yield token
-        Hub-->>User: Gửi ReceiveSubtitleToken (hiện phụ đề)
-        opt Đạt ranh giới ngắt câu hoặc cụm từ từ 4 từ trở lên
-            Hub->>TTS: Tổng hợp PCM thô (raw-24khz-16bit-mono)
-            TTS-->>Hub: Yield các byte chunk PCM
-            Hub-->>User: Bắn ReceiveAudioChunk (phát trực tiếp ra loa)
+        Hub-->>User: Dispatch ReceiveSubtitleToken (real-time subtitles)
+        opt Reached sentence end (. ? !) or clause boundary (, ; : with 4+ words)
+            Hub->>TTS: Synthesize raw PCM chunk (raw-24khz-16bit-mono)
+            TTS-->>Hub: Yield PCM byte chunks
+            Hub-->>User: Dispatch ReceiveAudioChunk (streamed to speaker)
         end
     end
 
-    Hub->>DB: Lưu câu phản hồi của Tutor (CQRS Write)
-    Hub-->>User: Gửi sự kiện TurnCompleted
+    Hub->>DB: Persist Tutor response (CQRS Write)
+    Hub-->>User: Dispatch TurnCompleted event
 ```
 
 ---
 
-## ✨ Tính năng nổi bật
+## ✨ Key Features
 
-1. **Giao tiếp giọng nói thời gian thực (Full-Duplex Voice-to-Voice)**:
-   - Độ trễ phản hồi cực thấp (< 1s) nhờ kiến trúc **PCM Streaming** trực tiếp tới tầng phần cứng của thiết bị, không cần đợi sinh hết câu hay lưu file đệm trung gian.
-2. **Cơ chế ngắt lời thông minh (Barge-in Support)**:
-   - Người dùng có thể nhấn nói đè hoặc bắt đầu lượt nói mới bất cứ lúc nào; hệ thống sẽ hủy ngay lượt sinh âm thanh cũ thông qua `CancellationToken` và xóa buffer âm thanh client để phản hồi lượt nói mới tức thì.
-3. **Sửa lỗi và hướng dẫn phản xạ tự nhiên (Pedagogical Prompting)**:
-   - Prompt gia sư đạt chuẩn IELTS 8.5+, câu trả lời súc tích (1-3 câu), tự nhiên kèm mẹo sửa lỗi ngữ pháp/từ vựng nhẹ nhàng trong ngoặc đơn: `(Tip: Instead of "...", you can say "...")`.
-4. **Phân loại trình độ theo chuẩn CEFR**:
-   - Hỗ trợ các cấp độ từ **A1, A2, B1, B2, C1 đến C2**, tự điều chỉnh từ vựng và tốc độ giao tiếp phù hợp với người học.
-5. **Chạy hoàn toàn cục bộ / bảo mật dữ liệu (On-Premise / Privacy-First)**:
-   - STT chạy bằng mô hình **Whisper local** (Whisper.net tự động tải và cache model GGML).
-   - LLM chạy trực tiếp qua **Ollama** trên máy (Llama 3.2).
-   - Hỗ trợ cả **Edge TTS** (chất lượng cao) lẫn **Kokoro TTS** (chạy Docker local).
-6. **Báo cáo & Tổng kết buổi học (Session Summary)**:
-   - Lưu trữ toàn bộ lịch sử hội thoại, phân tích tiến độ, hiển thị đánh giá tổng kết sau khi kết thúc buổi luyện nói.
+1. **Full-Duplex Real-time Voice Conversation**:
+   - Sub-second voice response latency (< 1s) achieved through **Raw PCM Streaming** directly fed into hardware sound buffers without waiting for full sentences or saving temporary audio files.
+2. **Instant Interruption / Barge-in Support**:
+   - Users can speak over the AI or trigger a new turn at any point. The backend instantly cancels the previous LLM token generation and TTS audio synthesis via `CancellationToken`, while the client flushes its active audio buffer.
+3. **Pedagogical Prompting & Natural Corrections**:
+   - Calibrated for IELTS 8.5+ conversational style: concise responses (1–3 sentences), natural conversational cadence, gentle inline corrections: `(Tip: Instead of "...", you can say "...")`, ending with open-ended questions.
+4. **CEFR Level Progression**:
+   - Fully adaptable across **A1, A2, B1, B2, C1, and C2** proficiency levels, tailoring vocabulary complexity and speaking pace to the learner.
+5. **Privacy-First & Fully Local AI Support**:
+   - **Speech-to-Text**: Native local OpenAI Whisper via `Whisper.net` (auto-downloads and caches GGML models locally).
+   - **LLM**: Local execution using **Ollama** (defaulting to `llama3.2:latest`).
+   - **TTS**: High-fidelity Microsoft Edge TTS or 100% offline local **Kokoro TTS** via Docker.
+6. **Session Evaluation & Analytics**:
+   - Complete conversation transcript history, feedback reports, and CEFR progress evaluation upon session completion.
 
 ---
 
-## 🛠️ Công nghệ sử dụng
+## 🛠️ Tech Stack
 
 ### Backend (.NET 10)
-| Công nghệ | Mục đích |
+| Technology | Role |
 |---|---|
-| **.NET 10 Web API** | Nền tảng backend hiệu năng cao, RESTful APIs |
-| **Clean Architecture** | Phân tách lớp: `Domain`, `Application`, `Infrastructure`, `Persistence`, `API` |
-| **MediatR (CQRS)** | Tách biệt luồng Ghi (Commands) và Đọc (Queries) |
-| **ASP.NET Core SignalR** | WebSocket real-time hub xử lý audio & token streaming |
-| **Whisper.net** | Nhận dạng giọng nói (STT) sử dụng model Whisper GGML chạy native |
-| **OllamaSharp** | Giao tiếp streaming với máy chủ Ollama LLM cục bộ |
-| **Npgsql & EF Core 10** | Tương tác cơ sở dữ liệu PostgreSQL (Write Context & Read Context) |
-| **Serilog** | Ghi log có cấu trúc (Structured Logging) kèm Tracing ID |
-| **Scalar** | Giao diện tài liệu API hiện đại thay thế Swagger UI (`/scalar/v1`) |
+| **.NET 10 Web API** | High-performance backend runtime and REST APIs |
+| **Clean Architecture** | Decoupled layers: `Domain`, `Application`, `Infrastructure`, `Persistence`, `API` |
+| **MediatR (CQRS)** | Segregation of Commands (Write) and Queries (Read) |
+| **ASP.NET Core SignalR** | Real-time WebSocket hub for token & audio streaming |
+| **Whisper.net** | Local Speech-to-Text powered by native GGML Whisper models |
+| **OllamaSharp** | Async streaming client for local Ollama LLM execution |
+| **Npgsql & EF Core 10** | PostgreSQL ORM with dedicated Write and Read DbContexts |
+| **Serilog** | Structured console logging with correlation Activity Trace IDs |
+| **Scalar** | Modern API reference documentation UI (`/scalar/v1`) |
 
 ### Mobile (Flutter)
-| Thư viện | Mục đích |
+| Package | Role |
 |---|---|
-| **Flutter 3.x / Dart 3** | Ứng dụng di động đa nền tảng (iOS, Android, macOS) |
-| **flutter_bloc** | Quản lý trạng thái (State Management) theo kiến trúc BLoC |
-| **get_it** | Dependency Injection container |
-| **record** | Thu âm microphone chuẩn định dạng WAV 16kHz Mono 16-bit |
-| **flutter_pcm_sound** | Truyền phát mẩu dữ liệu PCM 24kHz trực tiếp vào buffer âm thanh phần cứng |
-| **signalr_netcore** | Kết nối SignalR WebSocket tới backend |
-| **dio & pretty_dio_logger** | Client HTTP gọi REST API |
-| **flutter_animate** | Hiệu ứng UI, sóng âm thanh (Audio Wave Visualizer) |
+| **Flutter 3.x / Dart 3** | Cross-platform UI toolkit (iOS, Android, macOS) |
+| **flutter_bloc** | Predictable state management following BLoC architecture |
+| **get_it** | Service locator for dependency injection |
+| **record** | Microphone recording configured for 16kHz Mono 16-bit WAV |
+| **flutter_pcm_sound** | Direct feed of raw 24kHz PCM chunks to device audio output |
+| **signalr_netcore** | Bidirectional SignalR WebSocket client |
+| **dio & pretty_dio_logger** | Resilient REST HTTP client with request logging |
+| **flutter_animate** | Fluid micro-interactions and audio wave visualization |
 
 ---
 
-## 📁 Cấu trúc mã nguồn
+## 📁 Repository Structure
 
 ```text
 ai-english-tutor/
 ├── backend/
 │   ├── src/
-│   │   ├── AiEnglishTutor.Domain/          # Entity, Enum (LearningSession, SessionMessage, CefrLevel, ...)
-│   │   ├── AiEnglishTutor.Application/     # CQRS Commands, Queries, Interfaces, DTOs
+│   │   ├── AiEnglishTutor.Domain/          # Core entities, enums (LearningSession, SessionMessage, CefrLevel)
+│   │   ├── AiEnglishTutor.Application/     # CQRS Commands, Queries, DTOs, interface abstractions
 │   │   ├── AiEnglishTutor.Infrastructure/  # Whisper STT, Ollama LLM, Edge & Kokoro TTS, Prompts
-│   │   ├── AiEnglishTutor.Persistence/     # EF Core, PostgreSQL DbContext (Write/Read), Repositories
-│   │   └── AiEnglishTutor.API/             # Controllers, SignalR VoiceHub, Program.cs, Scalar OpenApi
-│   ├── docker-compose.yml                  # Khởi chạy PostgreSQL 16 & Kokoro TTS
+│   │   ├── AiEnglishTutor.Persistence/     # EF Core, PostgreSQL DbContexts (Write/Read), Repositories
+│   │   └── AiEnglishTutor.API/             # Controllers, SignalR VoiceHub, Program.cs, Scalar OpenAPI
+│   ├── docker-compose.yml                  # PostgreSQL 16 & Kokoro TTS services
 │   ├── AiEnglishTutor.sln                  # Visual Studio / Rider Solution file
-│   ├── CODE_REVIEW.md                      # Báo cáo đánh giá chất lượng mã nguồn & bảo mật
-│   └── PCM_STREAMING_PLAN.md               # Thiết kế chi tiết kỹ thuật PCM Streaming Backend
+│   ├── CODE_REVIEW.md                      # Code audit, security fixes, and architectural notes
+│   └── PCM_STREAMING_PLAN.md               # Backend PCM streaming implementation spec
 │
 └── mobile/
     ├── lib/
-    │   ├── app/                            # Cấu hình MaterialApp, Routing, Global Providers
-    │   ├── core/                           # Audio service, SignalR service, Constants, Theme, DI
+    │   ├── app/                            # App initialization, theming, and global bloc providers
+    │   ├── core/                           # Audio services, SignalR client, constants, theme, DI
     │   └── features/
-    │       ├── session/                    # Chọn chủ đề, chọn cấp độ CEFR, xem tổng kết buổi học
-    │       └── voice_tutor/                # Giao diện gọi thoại, Push-to-Talk, sóng âm, Subtitle stream
-    ├── pubspec.yaml                        # Danh sách dependencies Flutter
-    └── PCM_STREAMING_PLAN.md               # Thiết kế chi tiết kỹ thuật PCM Streaming Mobile
+    │       ├── session/                    # Topic selection, CEFR levels, session summary
+    │       └── voice_tutor/                # Voice call screen, Push-to-Talk, audio visualizer, subtitles
+    ├── pubspec.yaml                        # Flutter package configuration
+    └── PCM_STREAMING_PLAN.md               # Mobile PCM streaming implementation spec
 ```
 
 ---
 
-## 💻 Yêu cầu hệ thống
+## 💻 Prerequisites
 
-- **Hệ điều hành**: macOS, Linux hoặc Windows 11.
-- **.NET SDK**: Phiên bản `.NET 10.0` trở lên.
-- **Flutter SDK**: Phiên bản `>= 3.3.1` (kèm Xcode cho iOS/macOS hoặc Android Studio cho Android).
-- **Docker & Docker Compose**: Để chạy cơ sở dữ liệu PostgreSQL và TTS server.
-- **Ollama**: Đã cài đặt trên máy và có sẵn model `llama3.2:latest` (hoặc model tùy chọn khác).
+- **Operating System**: macOS, Linux, or Windows 11.
+- **.NET SDK**: Version `10.0` or higher.
+- **Flutter SDK**: Version `>= 3.3.1` (with Xcode for iOS/macOS or Android Studio for Android).
+- **Docker & Docker Compose**: For PostgreSQL and optional Kokoro TTS containers.
+- **Ollama**: Installed locally with the `llama3.2:latest` model pulled.
 
 ---
 
-## 🚀 Hướng dẫn cài đặt & Khởi chạy
+## 🚀 Getting Started
 
-### 1. Khởi động hạ tầng phụ trợ (Docker)
+### 1. Infrastructure Services (Docker)
 
-Di chuyển vào thư mục `backend/` và khởi động container PostgreSQL:
+Navigate to the `backend/` directory and launch the background containers:
 
 ```bash
 cd backend
 docker compose up -d
 ```
 
-> **Ghi chú**: Lệnh trên sẽ khởi chạy:
-> - **PostgreSQL 16**: Port `5433` (Username: `postgres`, Password: `postgrespassword`, DB: `ai_tutor_db`).
-> - **Kokoro TTS (CPU)**: Port `8880` (Tùy chọn Text-To-Speech offline).
+> **Note**: This starts:
+> - **PostgreSQL 16**: Port `5433` (User: `postgres`, Password: `postgrespassword`, Database: `ai_tutor_db`).
+> - **Kokoro TTS (CPU)**: Port `8880` (Optional offline Text-to-Speech service).
 
-Kiểm tra container đang chạy:
+Verify running containers:
 ```bash
 docker compose ps
 ```
 
 ---
 
-### 2. Chuẩn bị LLM (Ollama)
+### 2. Local LLM Setup (Ollama)
 
-Đảm bảo Ollama daemon đang chạy ở cổng mặc định `http://127.0.0.1:11434`, sau đó tải mô hình Llama 3.2:
+Ensure the Ollama daemon is running at `http://127.0.0.1:11434`, then pull the Llama 3.2 model:
 
 ```bash
-# Tải model (chỉ cần chạy lần đầu)
+# Pull model (first run only)
 ollama pull llama3.2
 
-# Kiểm tra model hoạt động
+# Verify execution
 ollama run llama3.2 "Hello"
 ```
 
 ---
 
-### 3. Chạy Backend (.NET 10)
+### 3. Run Backend API (.NET 10)
 
-1. Cấu hình kiểm tra trong `backend/src/AiEnglishTutor.API/appsettings.json`:
+1. Verify settings in `backend/src/AiEnglishTutor.API/appsettings.json`:
    ```json
    {
      "ConnectionStrings": {
@@ -204,115 +205,115 @@ ollama run llama3.2 "Hello"
    }
    ```
 
-2. Khởi chạy API service:
+2. Start the API service:
    ```bash
    cd backend/src/AiEnglishTutor.API
    dotnet run
    ```
 
-3. Backend sẽ tự động:
-   - Tạo cấu trúc database PostgreSQL nếu chưa tồn tại (`EnsureCreated`).
-   - Tự động tải file mô hình Whisper STT (`ggml-base.en.bin` ~140MB) vào thư mục `~/.ai-english-tutor/models/` nếu chưa có.
-   - Lắng nghe HTTP & SignalR tại: `http://localhost:5129`.
-   - Xem tài liệu API Scalar tại: `http://localhost:5129/scalar/v1`.
+3. The backend will:
+   - Auto-create PostgreSQL database schema if missing (`EnsureCreated`).
+   - Automatically download the Whisper STT model (`ggml-base.en.bin` ~140MB) into `~/.ai-english-tutor/models/` if not present.
+   - Listen for HTTP & SignalR connections at: `http://localhost:5129`.
+   - Expose the Scalar API documentation at: `http://localhost:5129/scalar/v1`.
 
 ---
 
-### 4. Chạy ứng dụng Mobile (Flutter)
+### 4. Run Mobile App (Flutter)
 
-1. Mở một terminal mới và di chuyển vào thư mục `mobile`:
+1. Open a new terminal and navigate to `mobile/`:
    ```bash
    cd mobile
    flutter pub get
    ```
 
-2. **Cấu hình địa chỉ IP máy chủ Backend**:
-   - Nếu chạy trên **iOS Simulator / macOS**: Ứng dụng tự động kết nối tới `localhost:5129`.
-   - Nếu chạy trên **Android Emulator**: Ứng dụng tự động dùng `10.0.2.2:5129`.
-   - Nếu chạy trên **Thiết bị thật (Physical Device)**: Bạn cần truyền IP máy tính qua tham số `--dart-define`:
+2. **Backend Host Configuration**:
+   - **iOS Simulator / macOS**: Automatically connects to `localhost:5129`.
+   - **Android Emulator**: Automatically routes to `10.0.2.2:5129`.
+   - **Physical Devices**: Pass your machine's LAN IP address via `--dart-define`:
      ```bash
      flutter run --dart-define=BACKEND_HOST=192.168.1.xxx:5129
      ```
-     *(Thay `192.168.1.xxx` bằng IP mạng nội bộ máy tính của bạn)*.
+     *(Replace `192.168.1.xxx` with your local development machine IP)*.
 
-3. Khởi chạy ứng dụng:
+3. Launch the application:
    ```bash
    flutter run
    ```
 
 ---
 
-## ⚡ Cơ chế Real-time Voice Pipeline
+## ⚡ Real-time Audio Pipeline
 
-Hệ thống tối ưu độ trễ âm thanh hai chiều thông qua các kỹ thuật:
+The system achieves sub-second conversational latency through four architectural optimizations:
 
-1. **Chuẩn hóa ghi âm (Client-side Recording)**:
-   - Thiết bị thu âm ở tần số **16,000 Hz, 16-bit Mono WAV** thông qua package `record`. Đây là định dạng tối ưu nhất cho model Whisper Speech-to-Text mà không cần qua khâu nén/giải nén trung gian.
+1. **Optimized Client-side Recording**:
+   - Audio is recorded at **16,000 Hz, 16-bit Mono WAV** format using `record`. This matches Whisper's native expected input sample format directly, avoiding audio transcoding overhead.
 
-2. **Cắt câu theo cụm ngữ pháp (Clause-Level Chunking)**:
-   - Khi Ollama stream từng token chữ, backend sẽ kiểm tra:
-     - Dấu kết thúc câu: `.`, `?`, `!`, `\n`.
-     - Dấu ngắt cụm câu: `,`, `;`, `:` khi cụm từ đạt tối thiểu **4 từ**.
-   - Ngay khi nhận đủ một cụm, backend gửi ngay cụm từ đó sang TTS để bắt đầu tổng hợp âm thanh, giúp người dùng nghe thấy tiếng của AI chỉ sau vài trăm mili-giây kể từ khi dứt lời.
+2. **Clause-Level Chunking & Pipelining**:
+   - As Ollama streams LLM tokens, the backend analyzes sentence boundaries:
+     - Sentence end punctuation: `.`, `?`, `!`, `\n`.
+     - Clause boundaries: `,`, `;`, `:` when the phrase length reaches $\ge 4$ words.
+   - Once a clause boundary is detected, the phrase is immediately dispatched to TTS synthesis while the LLM continues generating subsequent tokens in parallel.
 
-3. **Stream PCM thô (24kHz, 16-bit, Mono)**:
-   - Backend sử dụng định dạng `raw-24khz-16bit-mono-pcm` từ Edge TTS. Định dạng này không có frame header phức tạp như MP3/AAC, cho phép truyền từng chunk byte nhỏ qua SignalR.
-   - Backend tự động căn chỉnh bội số 2 byte (16-bit alignment) để chống rè tiếng trước khi gửi xuống Flutter.
-   - Flutter sử dụng `flutter_pcm_sound` nạp trực tiếp danh sách mẫu âm thanh `Int16List` vào driver âm thanh của thiết bị.
+3. **Raw Uncompressed PCM Streaming (24kHz, 16-bit, Mono)**:
+   - Audio is transmitted as raw `raw-24khz-16bit-mono-pcm` chunks. Unlike MP3/AAC, raw PCM carries no container headers, allowing immediate byte streaming over SignalR.
+   - The backend enforces strict 2-byte sample alignment (16-bit mono) before yielding network packets to prevent phase-shift distortion.
+   - Flutter's `flutter_pcm_sound` pushes `Int16List` buffers directly to audio hardware buffers.
 
-4. **Xử lý ngắt lời (Barge-in / Turn Management)**:
-   - Mỗi lượt nói được gắn một định danh `turnId` duy nhất.
-   - Khi người dùng bắt đầu nói một lượt mới, backend kích hoạt hủy (`Cancel`) `CancellationToken` của lượt trước đó, dừng ngay lập tức luồng sinh chữ của LLM và luồng phát âm thanh của TTS.
-   - Client tự động xóa sạch hàng đợi audio cũ, đảm bảo không bị lẫn lộn âm thanh giữa các lượt trò chuyện.
+4. **Barge-in & Turn Management**:
+   - Every conversational turn carries a unique `turnId`.
+   - When the user starts speaking, the backend cancels the active `CancellationToken` of any running turn, terminating LLM token emission and TTS synthesis immediately.
+   - The mobile client purges its local playback queue upon barge-in, preventing stale audio overlap.
 
 ---
 
 ## 🔌 API & SignalR Reference
 
-### REST API Endpoints
+### REST Endpoints
 
-| Phương thức | Đường dẫn | Mô tả |
+| Method | Endpoint | Description |
 |---|---|---|
-| `POST` | `/api/sessions` | Bắt đầu một phiên học mới (`Topic`, `TargetLevel`) |
-| `GET` | `/api/sessions/{id}` | Lấy chi tiết lịch sử hội thoại của phiên |
-| `GET` | `/api/sessions/active` | Lấy danh sách các phiên đang hoạt động |
-| `POST` | `/api/sessions/{id}/complete` | Kết thúc phiên học kèm phản hồi tổng kết |
-| `POST` | `/api/test/chat` | Kiểm tra kết nối sinh câu trả lời với Ollama |
-| `POST` | `/api/test/tts` | Kiểm tra tổng hợp giọng nói WAV |
+| `POST` | `/api/sessions` | Create a new learning session (`Topic`, `TargetLevel`) |
+| `GET` | `/api/sessions/{id}` | Retrieve complete conversation history for a session |
+| `GET` | `/api/sessions/active` | List all currently active sessions |
+| `POST` | `/api/sessions/{id}/complete` | Conclude session with evaluation feedback |
+| `POST` | `/api/test/chat` | Test Ollama chat generation (Dev only) |
+| `POST` | `/api/test/tts` | Test TTS synthesis returning WAV audio (Dev only) |
 
 ### SignalR Hub (`/hubs/voice`)
 
-#### Client gọi lên Server:
-- `StartSession(string topic, CefrLevel level)`: Mở phiên học và ghim phiên vào kết nối.
-- `JoinSession(Guid sessionId)`: Ghim phiên đã có vào kết nối (sau khi reconnect).
-- `ProcessUserAudio(byte[] audioBytes, Guid turnId, Guid? sessionId)`: Gửi file ghi âm giọng nói.
-- `ProcessUserText(string userText, Guid turnId, Guid? sessionId)`: Gửi tin nhắn dạng văn bản.
+#### Client Invocations:
+- `StartSession(string topic, CefrLevel level)`: Initializes and binds a session to the connection.
+- `JoinSession(Guid sessionId)`: Binds an existing active session upon reconnect.
+- `ProcessUserAudio(byte[] audioBytes, Guid turnId, Guid? sessionId)`: Submits audio recording for processing.
+- `ProcessUserText(string userText, Guid turnId, Guid? sessionId)`: Submits typed text input.
 
-#### Server gửi về Client:
-- `StatusUpdate(string status)`: Trạng thái hiện tại ("Transcribing...", "AI is thinking...").
-- `UserTranscribedText(string text)`: Văn bản mà STT nhận dạng được từ giọng nói user.
-- `ReceiveSubtitleToken(string token, Guid turnId)`: Từng từ/token phản hồi của AI để hiển thị phụ đề thời gian thực.
-- `ReceiveAudioChunk(byte[] pcmChunk, Guid turnId)`: Gói âm thanh PCM thô để nạp vào loa.
-- `TurnCompleted(string fullResponse)`: Hoàn thành lượt phản hồi hiện tại.
-
----
-
-## ❓ Troubleshooting & Lưu ý
-
-1. **Lỗi không nghe thấy âm thanh trên máy ảo / thiết bị thật**:
-   - Kiểm tra xem bạn đã cấp quyền truy cập Microphone cho ứng dụng hay chưa.
-   - Trên iOS: Đảm bảo thiết bị không bật chế độ im lặng (Silent Switch).
-2. **Lỗi kết nối SignalR / HTTP từ điện thoại thật**:
-   - Đảm bảo điện thoại và máy tính cùng kết nối vào một mạng Wi-Fi.
-   - Tắt hoặc mở cổng tường lửa máy tính cho port `5429` / `5129` / `5433`.
-   - Sử dụng flag `--dart-define=BACKEND_HOST=<IP_LAN>:5129` khi chạy `flutter run`.
-3. **Mô hình Whisper tải chậm ở lần đầu tiên**:
-   - Ở lần chạy đầu tiên, backend sẽ tải file `ggml-base.en.bin` (~140MB). Vui lòng đợi đến khi terminal hiện thông báo `Whisper model downloaded successfully` trước khi thực hiện cuộc gọi.
-4. **Ollama không phản hồi**:
-   - Kiểm tra `curl http://127.0.0.1:11434/api/tags` xem Ollama service đang chạy và model `llama3.2:latest` đã sẵn sàng hay chưa.
+#### Server Dispatches:
+- `StatusUpdate(string status)`: Progress status ("Transcribing speech...", "AI is thinking...").
+- `UserTranscribedText(string text)`: Transcribed user input from STT.
+- `ReceiveSubtitleToken(string token, Guid turnId)`: Incremental AI response token for live subtitle display.
+- `ReceiveAudioChunk(byte[] pcmChunk, Guid turnId)`: Raw PCM audio slice streamed to device audio feed.
+- `TurnCompleted(string fullResponse)`: Signals completion of the current conversational turn.
 
 ---
 
-## 📄 Giấy phép
+## ❓ Troubleshooting & FAQs
 
-Dự án được phát triển phục vụ mục đích nghiên cứu, học tập và ứng dụng AI trong giáo dục ngôn ngữ.
+1. **No audio heard on physical device or simulator**:
+   - Ensure microphone and speaker permissions are granted.
+   - On iOS devices, verify that the physical Silent/Mute switch is turned off.
+2. **SignalR connection failures from physical mobile devices**:
+   - Ensure the mobile device and development workstation are on the same Wi-Fi subnet.
+   - Check local firewall rules for port `5129`.
+   - Launch with the explicit host IP: `--dart-define=BACKEND_HOST=<LAN_IP>:5129`.
+3. **Whisper model download delays on initial startup**:
+   - On first launch, the backend downloads `ggml-base.en.bin` (~140MB). Wait until the console logs `Whisper model downloaded successfully` before starting voice calls.
+4. **Ollama connection errors**:
+   - Verify that Ollama is active (`curl http://127.0.0.1:11434/api/tags`) and that `llama3.2:latest` is installed.
+
+---
+
+## 📄 License
+
+This project is licensed under the MIT License — developed for research, education, and conversational AI tutoring applications.
